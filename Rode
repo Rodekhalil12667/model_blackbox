@@ -1,0 +1,119 @@
+% Geometric, thermal, and physical parameters
+L = 0.01;  % Length of the sample (m)
+h = 0.001;  % Thickness of the sample (m)
+k = 1.38e-23;  % Thermal conductivity of the sample (W/mK)
+c = 380;  % Specific heat capacity of the sample (J/kgK)
+rho = 1000;  % Density of the sample (kg/m^3)
+T_init = 20;  % Initial temperature of the sample (K)
+T_amb = 25;  % Ambient temperature (K)
+
+% Microwave parameters
+P_mic = 100;  % Microwave power (W)
+f = 2.45e9;  % Frequency (Hz)
+V_mic = 200;  % Voltage of the excitation signal (V)
+omega = 2 * pi * f;  % Angular frequency
+
+% Number of elements
+N = 100;
+
+% Discretization
+dx = L / N;
+x = linspace(0, L, N + 1);
+
+% Matrix assembly
+A = zeros(N + 1);
+b = zeros(N + 1, 1);
+
+% Boundary conditions
+A(1, 1) = 1;
+A(N + 1, N + 1) = 1;
+b(1) = T_amb;
+b(N + 1) = T_amb;
+
+% Assembly of the matrices
+for i = 2:N
+    A(i, i - 1) = -k / h;
+    A(i, i) = 2 * k / h + c * rho;
+    A(i, i + 1) = -k / h;
+    b(i) = T_init;
+end
+
+% Solving the heat equation
+T = A\b;
+
+% Function to solve Maxwell's equations
+function Q = solve_maxwell(T)
+    % Define the permittivity and conductivity as a function of temperature
+    eps = 1 + 0.02 * (T - T_init);
+    sigma = 0.01 * (T - T_init);
+
+    % Define the matrix for Maxwell's equations
+    M = zeros(N + 1);
+
+    % Boundary conditions
+    M(1, 1) = 1;
+    M(N + 1, N + 1) = 1;
+
+    % Assembly of the matrices
+    for i = 2:N
+        M(i, i - 1) = -1 / dx;
+        M(i, i) = 2 / dx + 1j * omega * eps(i) + sigma(i);
+        M(i, i + 1) = -1 / dx;
+    end
+
+    % Solving Maxwell's equations
+    E = M \ zeros(N + 1, 1);
+
+    % Calculate the absorbed power
+    Q = 0.5 * real(conj(E) .* (1j * omega * eps + sigma) .* E);
+end
+
+% Function to solve the bio-heat equation
+function T_new = solve_bioheat(T, Q)
+    % Define the blood perfusion rate
+    w = 0.001;
+
+    % Define the matrix for the bio-heat equation
+    A = zeros(N + 1);
+
+    % Boundary conditions
+    A(1, 1) = 1;
+    A(N + 1, N + 1) = 1;
+
+    % Assembly of the matrices
+    for i = 2:N
+        A(i, i - 1) = -k / dx;
+        A(i, i) = 2 * k / dx + c * rho + w;
+        A(i, i + 1) = -k / dx;
+    end
+
+    % Solving the bio-heat equation
+    T_new = A \ (b + Q);
+end
+
+% Iterative solver
+tol = 1e-6;
+T_old = T;
+
+while norm(T_old - T) > tol
+    Q = solve_maxwell(T);
+    T = solve_bioheat(T, Q);
+    T_old = T;
+end
+
+% Plotting the results
+plot(x, T);
+xlabel('Position (m)');
+ylabel('Temperature (K)');
+title('Temperature Distribution');
+grid on;
+
+% Calculating the SAR
+SAR = Q / (rho * h);
+
+% Calculating the thermal dose
+TD = 0.025 * exp(1.8 * T - 43);
+
+% Print the results
+disp(['SAR: ', num2str(SAR), ' W/kg']);
+disp(['Thermal dose: ', num2str(TD)]);
